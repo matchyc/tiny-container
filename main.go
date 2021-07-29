@@ -47,4 +47,5 @@ func main() {
 		//if the first argument is not "run", then trigger a panic
 		panic("BAD COMMAND!!! (the first argument must be \"run\")")
 	}
+	fmt.Println("Exit.")
 }
