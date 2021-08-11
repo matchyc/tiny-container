@@ -238,6 +238,3 @@ root@tiny-container:/home/meng/projects/tiny-container# hostname
 tiny-container
 root@tiny-container:/home/meng/projects/tiny-container# 
 ```
-
-
-
