@@ -139,7 +139,7 @@ If the following flag mask is set, how does it means:
   - get new
   - same
 
->**UTS namespace** isolates of two system identifiers. Hostname and NISdomain name. Changes made to the two attributes are visible to all processes in the same UTS namespace, but are not to processes outside the namespace.
+>**UTS(Unix time sharing System) namespace** isolates of two system identifiers. Hostname and NISdomain name. Changes made to the two attributes are visible to all processes in the same UTS namespace, but are not to processes outside the namespace.
 
 CLONE_THREAD 
 CLONE_VFORK
@@ -148,3 +148,96 @@ CLONE_VM - share memory
 vfork
   vfork() is a special case of clone(). It is used to create new processes **without** copying the page tables of the parent process. The calling thread **suspended** until the child terminates.
 ......
+
+
+----------
+
+## PROGRAM 2
+
+### Check the function of namespce by modifying the hostname66 
+Before we execute the command we indicated, we set Coneflags `CLONE_NEWUTS` for the child process. 
+
+```go
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Cloneflags: syscall.CLONE_NEWUTS, //isolates system identifier like hostname...
+	}
+```
+
+Then let's see what will happen.
+
+we use `go run main.go run bash` to execute the bash.
+```s
+root@ali-ecs:/home/meng/projects/tiny-container# go run main.go run bash
+Runnning comand: [bash]
+root@ali-ecs:/home/meng/projects/tiny-container# ps -af
+UID          PID    PPID  C STIME TTY          TIME CMD
+root      268368  268190  0 13:51 pts/2    00:00:00 su root
+root      268369  268368  0 13:51 pts/2    00:00:00 bash
+root      268454  268369  4 13:51 pts/2    00:00:00 go run main.go run bash
+root      268493  268454  0 13:52 pts/2    00:00:00 /tmp/go-build2189013451
+root      268498  268493  0 13:52 pts/2    00:00:00 bash
+root      268533  268498  0 13:52 pts/2    00:00:00 ps -af
+```
+
+As we can see, we use `ps -af` to see the processes in all terminals, we can see `bash` is the program we just ran.
+
+
+Then we change `hostname` in this blocked bash process.
+```shell
+root@ali-ecs:/home/meng/projects/tiny-container# hostname
+ali-ecs
+root@ali-ecs:/home/meng/projects/tiny-container# hostname newhostname
+root@ali-ecs:/home/meng/projects/tiny-container# hostname
+newhostname
+```
+
+In a new terminal we check whether the `hostname` was changed.
+
+```sh
+(base) meng@ali-ecs:~/projects/tiny-container$ hostname
+ali-ecs
+(base) meng@ali-ecs:~/projects/tiny-container$ 
+```
+
+Nothing happened.
+
+Because we **isolates** the Unix time sharing system by using **CLONE_NEWUTS**.
+
+The first terminal only can see the hostname within it's namespace, and the changes in the isolated resources are not visible for process outside the namespace and **$\color{red}{vice\ sersa}$**.
+
+On VM
+```
+(base) meng@ali-ecs:~/projects/tiny-container$ sudo hostname invm
+[sudo] password for meng: 
+(base) meng@ali-ecs:~/projects/tiny-container$ hostname
+invm
+```
+In namespace
+```
+root@ali-ecs:/home/meng/projects/tiny-container# hostname
+newhostname
+root@ali-ecs:/home/meng/projects/tiny-container# 
+```
+
+
+### Change hostname automatically
+
+We execute the main.go in twice.
+- First time - `func run()`: we create a child process in a **new** UTS_namespace, and the child process calls itself(main.go) to run again.(use trick `/proc/self/exe` always links to the running executable)
+- Second time - `func child()`: the second child receives parameters from the first time, and run the expected command **without** creating a new UTS_namespace.
+
+Then we add `syscall.Sethostname([]byte("tiny-container"))` in `child()` function to set hostname as "tiny-container" automatically.
+
+Let see the result.
+
+```sh
+root@ali-ecs:/home/meng/projects/tiny-container# go run main.go run bash
+Runnning command: [bash]
+Running [bash]
+root@tiny-container:/home/meng/projects/tiny-container# hostname
+tiny-container
+root@tiny-container:/home/meng/projects/tiny-container# 
+```
+
+
+
