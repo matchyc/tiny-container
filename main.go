@@ -55,16 +55,37 @@ func run() {
 func child() {
 	fmt.Printf("Running %v\n", os.Args[2:])
 
-	cmd := exec.Command(os.Args[2], os.Args[3:]...)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
+	// fmt.Println("Check executable path", cmd.Path)
 	//set hostname in every command we executed
 	err := syscall.Sethostname([]byte("tiny-container"))
 	if err != nil {
 		panic(fmt.Sprintf("Sethostname: %v\n", err))
 	}
+
+	//chroot
+	err = syscall.Chroot("/home/meng/projects/tiny-container/alpine")
+	if err != nil {
+		panic(fmt.Sprintf("Chroot: %v\n", err))
+	}
+
+	//chdir, change to new root directory
+	err = syscall.Chdir("/")
+	if err != nil {
+		panic(fmt.Sprintf("Chdir: %v\n", err))
+	}
+	// syscall.Setenv("PATH", os.Getenv("PATH"))
+	// fmt.Println(os.Getenv("PATH"))
+
+	cmd := exec.Command(os.Args[2], os.Args[3:]...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	//Ubuntu's executables file paths are different from alpine
+	//So after chroot and chdir, we need to use LookPath to
+	//get the program path and make cmd.Path equals progPath
+	// progPath, err := exec.LookPath(os.Args[2])
+	// cmd.Path = progPath
 
 	err = cmd.Run()
 	if err != nil {

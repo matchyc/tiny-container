@@ -1,6 +1,6 @@
 # tiny-container
 
-build a container from scratch in Golang
+Build a container from scratch in Golang
 
 ## PROGRAM 1
 
@@ -238,3 +238,105 @@ root@tiny-container:/home/meng/projects/tiny-container# hostname
 tiny-container
 root@tiny-container:/home/meng/projects/tiny-container# 
 ```
+
+
+## Program 3
+
+We need to give the "tiny container" its own set of files and directories, which means we need to limit its view of filesystems.
+
+Using Alpine Linux to do these things.
+
+Enter the following commands to get Linux alpine.
+```
+mkdir alpine
+cd alpine
+curl -o alpine.tar.gz http://dl-cdn.alpinelinux.org/alpine/v3.10/releases/x86_64/alpine-minirootfs-3.10.0-x86_64.tar.gz
+rm alpine.tar.gz
+```
+
+So we get these directories.
+```
+(base) meng@ali-ecs:~/projects/tiny-container/alpine$ ls
+bin  etc   lib    mnt  proc  run   srv  tmp  var
+dev  home  media  opt  root  sbin  sys  usr
+```
+
+## Chroot
+
+Using system call `chroot()` changes the root directory of the calling process.
+
+**What chroot() can do:**
+> To change an ingredient in the pathname resolution process and does nothiong else.
+
+**Unsafe**. Unless One could ensure no directory will be moved out from chroot directory.
+
+
+### Chroot
+
+Using `chroot()` and `chdir()` are enough to make tiny-container having its own view of filesystem.
+
+Normally, we just run the command after chroot()\chdir().
+
+
+### Question
+But, here gonna be something wrong if the system outside the container has different file path of the executable.
+
+Such as executable file `ls` is in `/usr/bin` in Ubuntu, but in `/bin` in Alpine.
+
+If we get the `Command` struct in golang before we call `chroot()` and `chdir()`, it will triger a panic like this
+
+```
+panic: running: fork/exec /usr/bin/ls: no such file or directory
+```
+
+It means our process can't find executable in the **new** root directory. **Because** when this line is executed,
+```go
+cmd := exec.Command(os.Args[2], os.Args[3:]...)
+```
+
+An attribute named `Path` in Command struct will be set as the return value.(exec.Command will return the path and args) After we calling chroot and chdir, the atrribute `Path` in Command struct is not changed. So the program may can't execute the specific executable via `Path` property.
+
+
+### Solution
+There are two ways to solve the problem.
+
+1. Call function `LookPath(file string)` after chroot and chdir.
+`LookPaht(file string) (string, error)` returns the new path of indicated executable and error messages.
+Then we set cmd.Path as the return value.
+
+```go
+	//Ubuntu's executables file paths are different from alpine
+	//So after chroot and chdir, we need to use LookPath to
+	//get the program path and make cmd.Path equals progPath
+	progPath, err := exec.LookPath(os.Args[2])
+	cmd.Path = progPath
+```
+
+2. Just create the variable `cmd` after chroot() and chdir().
+
+### Show
+
+Now the container only can run the executables in its own directory and can't access the file outside the chroot normally.
+
+```
+root@ali-ecs:/home/meng/projects/tiny-container# go run main.go run sh
+Runnning command: [sh]
+Running [sh]
+/ # ls
+bin    etc    lib    mnt    proc   run    srv    tmp    var
+dev    home   media  opt    root   sbin   sys    usr
+/ # pwd
+/
+/ # cd ../../
+/ # cd /
+/ # cat ../main.go
+cat: can't open '../main.go': No such file or directory
+/ # ls ../../
+bin    etc    lib    mnt    proc   run    srv    tmp    var
+dev    home   media  opt    root   sbin   sys    usr
+/ # 
+```
+
+
+
+
