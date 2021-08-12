@@ -53,7 +53,7 @@ func run() {
 
 //second time, actually run the expected command
 func child() {
-	fmt.Printf("Running %v\n", os.Args[2:])
+	fmt.Printf("Running %v as %d\n", os.Args[2:], os.Getpid())
 
 	// fmt.Println("Check executable path", cmd.Path)
 	//set hostname in every command we executed
@@ -76,6 +76,11 @@ func child() {
 	// syscall.Setenv("PATH", os.Getenv("PATH"))
 	// fmt.Println(os.Getenv("PATH"))
 
+	err = syscall.Mount("proc", "proc", "proc", 0, "")
+	if err != nil {
+		panic(fmt.Sprintf("mount: %v\n", err))
+	}
+
 	cmd := exec.Command(os.Args[2], os.Args[3:]...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
@@ -91,6 +96,8 @@ func child() {
 	if err != nil {
 		panic(fmt.Sprintf("running: %v\n", err))
 	}
+
+	syscall.Unmount("/proc", 0)
 }
 
 func main() {

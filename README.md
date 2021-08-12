@@ -337,6 +337,97 @@ dev    home   media  opt    root   sbin   sys    usr
 / # 
 ```
 
+## Isolate theProcess
+
+Logically, we shouldn't see the processes inside the container. But here... we can see the process inside the container from **outside**.
+see that...
+```
+root@ali-ecs:/home/meng/projects/tiny-container# go run main.go run sh
+Runnning command: [sh]
+Running [sh]
+/ # sleep 1000
+```
+**Another terminal**
+```
+(base) meng@ali-ecs:~/projects/tiny-container$ ps -C sleep
+    PID TTY          TIME CMD
+ 286698 ?        00:00:00 sleep
+ 286763 pts/3    00:00:00 sleep
+```
+so that's the **Sleeping** process with `PID` **286763**.
+
+Let's see `/proc` files about **286763**.
+
+```sh
+root@ali-ecs:/home/meng/projects/tiny-container# ls /proc/286763/
+arch_status      fd          ns             setgroups
+attr             fdinfo      numa_maps      smaps
+autogroup        gid_map     oom_adj        smaps_rollup
+auxv             io          oom_score      stack
+cgroup           limits      oom_score_adj  stat
+clear_refs       loginuid    pagemap        statm
+cmdline          map_files   patch_state    status
+comm             maps        personality    syscall
+coredump_filter  mem         projid_map     task
+cpuset           mountinfo   root           timers
+cwd              mounts      sched          timerslack_ns
+environ          mountstats  schedstat      uid_map
+exe              net         sessionid      wchan
+```
+
+We can see the `root` directory, then let's see the details of root directory.
+
+It's a link to /alpine
+```
+root@ali-ecs:/home/meng/projects/tiny-container# ls -l /proc/286763/root
+lrwxrwxrwx 1 root root 0 Aug 12 21:02 /proc/286763/root -> /home/meng/projects/tiny-container/alpine
+```
 
 
+### Ps Question
+What if we use `ps` and `ls /proc` inside?
 
+Nothing happened.
+
+Normally, it should list an entry of the `ps` command we were just running.
+```
+/ # ls /proc/
+/ # 
+/ # ps
+PID   USER     TIME  COMMAND
+/ # 
+```
+
+
+**Because** `/proc` is a **pseudo** filesystem.
+> It's a machanism for the kernel and the user space to share infomation.
+
+In fact, `ps` finds out about running programs by looking in the `/proc` directory.
+
+And at this moment slash proc(`/proc`) inside the tiny-container in the chroot filesystem has nothing in it. And we should **mount** the a directory as a proc pseudo filesystem to let the kernel knows it need to populate that with information about these running processes.
+
+Use command `mount` in tiny-container's shell:
+
+```
+/ # mount
+mount: no /proc/mounts
+/ # 
+```
+
+So, we have to modify `main.go` to add a mount point for the proc pseudo filesystem.
+
+### Solution
+
+Add the two lines before  and after `cmd.Run()`.
+```go
+err = syscall.Mount("proc", "proc", "proc", 0, "")
+
+syscall.Unmount("/proc", 0)
+```
+
+Then use `ps` in tiny container's `shell` again, we can see processes are listed with `PID` 1. 
+```
+/ # ps
+PID   USER     TIME  COMMAND
+    1 root      0:34 {systemd} /sbin/init noibrs
+```
