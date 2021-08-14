@@ -16,7 +16,7 @@ import (
 //first time
 func run() {
 	//The second argument and the successive args are the targer command needed to run
-	fmt.Printf("Runnning command: %v\n", os.Args[2:])
+	fmt.Printf("Runnning command: %v as %d\n", os.Args[2:], os.Getpid())
 
 	//Program 1
 	//Golang package exec runs external commands. (Like exec in C?)
@@ -33,8 +33,12 @@ func run() {
 	args[1] = "child"
 	cmd := exec.Command(args[0], args[1:]...)
 
+	//NEWUST isolates system identifier like hostname...
+	//NEWPID isolates process id number
+	//
 	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Cloneflags: syscall.CLONE_NEWUTS, //isolates system identifier like hostname...
+		Cloneflags:   syscall.CLONE_NEWUTS | syscall.CLONE_NEWPID | syscall.CLONE_NEWNS,
+		Unshareflags: syscall.CLONE_NEWNS,
 	}
 	//golang os/exec wrapped os.StartProcess to make it easier to remap stdin and stdout.
 	//eg. we can remap easily like
@@ -97,7 +101,10 @@ func child() {
 		panic(fmt.Sprintf("running: %v\n", err))
 	}
 
-	syscall.Unmount("/proc", 0)
+	err = syscall.Unmount("/proc", 0)
+	if err != nil {
+		panic(fmt.Sprintf("Umount: %v\n", err))
+	}
 }
 
 func main() {

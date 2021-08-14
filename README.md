@@ -383,6 +383,21 @@ root@ali-ecs:/home/meng/projects/tiny-container# ls -l /proc/286763/root
 lrwxrwxrwx 1 root root 0 Aug 12 21:02 /proc/286763/root -> /home/meng/projects/tiny-container/alpine
 ```
 
+### Pid started with number 1
+FLags of `clone`
+- CLONE_NEWPID
+  - if `CLONE_NEWPID` is set, the created process will be put into a new pid namespace. And has **PID 1**. And this process become the `init` process inside container, it becomes the parent of any child processes that are **orphaned**.(*orphaned, interesting word*)
+  - if not, it's created in the same pid namespace as the calling process.
+
+
+>PID namespaces isolate the process ID number space, meaning that processes in different PID namespaces can have the same PID. PID namespaces allow containers to provide functionality such as suspending/resuming the set of processes in the container and migrating the container to a new host while the processes inside the container maintain the same PIDs.
+
+In `main.go`, we add this flag.
+```go
+cmd.SysProcAttr = &syscall.SysProcAttr{
+		Cloneflags: syscall.CLONE_NEWUTS | syscall.CLONE_NEWPID,
+	}
+```
 
 ### Ps Question
 What if we use `ps` and `ls /proc` inside?
@@ -425,9 +440,74 @@ err = syscall.Mount("proc", "proc", "proc", 0, "")
 syscall.Unmount("/proc", 0)
 ```
 
-Then use `ps` in tiny container's `shell` again, we can see processes are listed with `PID` 1. 
+Then use `ps` in tiny container's `shell` again, we can see processes are listed with `PID` 1. And not any other processes outside the container are listed by `ps` command executed inside the tiny-container.
 ```
 / # ps
+root@ali-ecs:/home/meng/projects/tiny-container# go run main.go run sh
+Runnning command: [sh] as 294129
+Running [sh] as 1
+/ # ps
 PID   USER     TIME  COMMAND
-    1 root      0:34 {systemd} /sbin/init noibrs
+    1 root      0:00 /proc/self/exe child sh
+    5 root      0:00 sh
+    6 root      0:00 ps
+```
+
+Use command mount to check mounted filesystems.
+- inside the tiny-container
+```
+/ # mount
+proc on /proc type proc (rw,relatime)
+```
+
+- outside the tiny-container, we can see the following output.
+
+```
+(base) meng@ali-ecs:~/projects/tiny-container$ mount | grep proc
+proc on /proc type proc (rw,nosuid,nodev,noexec,relatime)
+systemd-1 on /proc/sys/fs/binfmt_misc type autofs (rw,relatime,fd=28,pgrp=1,timeout=0,minproto=5,maxproto=5,direct,pipe_ino=13148)
+proc on /home/meng/projects/tiny-container/alpine/proc type proc (rw,relatime)
+```
+
+## Isolates Mount
+
+Mount namespaces provide isolations for the mount points seen by processes.
+
+Processes in each mount namespace will see the distinct single-directory hierarchies.
+
+Information of mount is provided by `/proc/[pid]/mounts`, /`proc/[pid]/mountinfo`, `/proc/[pid]/mountstats`.
+
+By using link `mechanism`, processes in the same mount namespace will see the same view in these files.
+
+- **CLONE_NEWNS**
+  - If it is set, the child is started in a new mount namespace, initialized with a copy of the namespace of the parent.
+  - If not, the child lives in the same mount namespace as the calling process.
+
+>Liz Rice: Apparently, CLONE_NEWNS may be the first clone flags about namespace invented by Linux developer and added into kernel. They may think we don't need other namespaces at that time, so they called that `namespace`. But it's actually for `mount`.
+
+**Unshre flags**:CLONE_NEWNS, get a private copy of its namespace.
+In `main.go`: add flags.
+
+```go
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Cloneflags:   syscall.CLONE_NEWUTS | syscall.CLONE_NEWPID | syscall.CLONE_NEWNS,
+		Unshareflags: syscall.CLONE_NEWNS,
+	}
+```
+
+After that, we may can't see chroot /proc when we use command `mount` in our host machine.
+
+- Inside tiny container
+```
+/ # mount
+proc on /proc type proc (rw,relatime)
+/ # 
+```
+
+- Outside tiny container
+```
+(base) meng@ali-ecs:~/projects/tiny-container$ mount | grep procproc on /proc type proc (rw,nosuid,nodev,noexec,relatime)
+systemd-1 on /proc/sys/fs/binfmt_misc type autofs (rw,relatime,fd=28,pgrp=1,timeout=0,minproto=5,maxproto=5,direct,pipe_ino=13148)
+binfmt_misc on /proc/sys/fs/binfmt_misc type binfmt_misc (rw,nosuid,nodev,noexec,relatime)
+(base) meng@ali-ecs:~/projects/tiny-container$ 
 ```
