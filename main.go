@@ -8,8 +8,11 @@ package main
 
 import (
 	"fmt"
+	"io/ioutil"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strconv"
 	"syscall"
 )
 
@@ -59,6 +62,8 @@ func run() {
 func child() {
 	fmt.Printf("Running %v as %d\n", os.Args[2:], os.Getpid())
 
+	cgroup()
+
 	// fmt.Println("Check executable path", cmd.Path)
 	//set hostname in every command we executed
 	err := syscall.Sethostname([]byte("tiny-container"))
@@ -67,7 +72,7 @@ func child() {
 	}
 
 	//chroot
-	err = syscall.Chroot("/home/meng/projects/tiny-container/alpine")
+	err = syscall.Chroot("/home/meng/projects/tiny-container/ubuntu")
 	if err != nil {
 		panic(fmt.Sprintf("Chroot: %v\n", err))
 	}
@@ -119,4 +124,29 @@ func main() {
 		panic("BAD COMMAND!!! (the first argument must be \"run\")")
 	}
 	fmt.Println("Golang program exited.")
+}
+
+func cgroup() {
+	cgroups := "/sys/fs/cgroup"
+	pids := filepath.Join(cgroups, "pids")
+	err := os.Mkdir(filepath.Join(pids, "tiny"), 0755)
+	if err != nil && !os.IsExist(err) {
+		panic(fmt.Sprintf("Mkdir: %v\n", err))
+	}
+	// Inside 'tiny' control group, there can only be 20 processes.
+	err = ioutil.WriteFile(filepath.Join(pids, "tiny/pids.max"), []byte("20"), 0700)
+	if err != nil {
+		panic(err)
+	}
+	//
+	err = ioutil.WriteFile(filepath.Join(pids, "tiny/notify_on_release"), []byte("1"), 0700)
+	if err != nil {
+		panic(err)
+	}
+	// This line add the present process into 'tiny' control group
+	// so it subject the same limits.
+	err = ioutil.WriteFile(filepath.Join(pids, "tiny/cgroup.procs"), []byte(strconv.Itoa(os.Getpid())), 0700)
+	if err != nil {
+		panic(err)
+	}
 }
